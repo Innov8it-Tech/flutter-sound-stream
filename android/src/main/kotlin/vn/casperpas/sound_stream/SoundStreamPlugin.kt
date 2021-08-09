@@ -6,6 +6,7 @@ import android.content.Context
 import android.content.pm.PackageManager
 import android.media.*
 import android.media.AudioRecord.OnRecordPositionUpdateListener
+import android.os.Build
 import android.util.Log
 import androidx.annotation.NonNull
 import androidx.core.app.ActivityCompat
@@ -75,6 +76,8 @@ public class SoundStreamPlugin : FlutterPlugin,
             .setSampleRate(mPlayerSampleRate)
             .build()
 
+    private var audioManager: AudioManager? = null
+
     /** ======== Basic Plugin initialization ======== **/
 
     override fun onAttachedToEngine(@NonNull flutterPluginBinding: FlutterPlugin.FlutterPluginBinding) {
@@ -124,6 +127,7 @@ public class SoundStreamPlugin : FlutterPlugin,
         pluginContext = applicationContext
         methodChannel = MethodChannel(messenger, methodChannelName)
         methodChannel.setMethodCallHandler(this)
+        audioManager = pluginContext?.getSystemService(Context.AUDIO_SERVICE) as AudioManager
     }
 
     override fun onDetachedFromEngine(@NonNull binding: FlutterPlugin.FlutterPluginBinding) {
@@ -352,12 +356,66 @@ public class SoundStreamPlugin : FlutterPlugin,
                 return
             }
 
+            toggleAudioOutput()
+
             mAudioTrack!!.play()
             sendPlayerStatus(SoundStreamStatus.Playing)
             result.success(true)
         } catch (e: Exception) {
             result.error(SoundStreamErrors.FailedToPlay.name, "Failed to start Player", e.localizedMessage)
         }
+    }
+
+    private fun toggleAudioOutput() {
+
+        when {
+            isBluetoothON() -> {
+                audioManager?.mode = AudioManager.MODE_IN_COMMUNICATION
+                audioManager?.startBluetoothSco()
+                audioManager?.isBluetoothScoOn = true
+            }
+            isWiredHeadsetOn() -> {
+                audioManager?.mode = AudioManager.MODE_IN_COMMUNICATION
+                audioManager?.stopBluetoothSco();
+                audioManager?.isBluetoothScoOn = false;
+                audioManager?.isSpeakerphoneOn = false;
+            }
+            else -> {
+                audioManager?.mode = AudioManager.MODE_NORMAL;
+                audioManager?.stopBluetoothSco();
+                audioManager?.isBluetoothScoOn = false;
+                audioManager?.isSpeakerphoneOn = true;
+            }
+        }
+
+    }
+
+    private fun isWiredHeadsetOn(): Boolean {
+        if(Build.VERSION.SDK_INT < Build.VERSION_CODES.M)
+            return audioManager?.isWiredHeadsetOn == true
+        else {
+            val devices = audioManager?.getDevices(AudioManager.GET_DEVICES_OUTPUTS)
+            if (devices != null) {
+                for(device in devices)
+                    if (device.type == AudioDeviceInfo.TYPE_WIRED_HEADSET || device.type == AudioDeviceInfo.TYPE_WIRED_HEADPHONES)
+                        return true
+            }
+        }
+        return false
+    }
+
+    private fun isBluetoothON(): Boolean {
+        if(Build.VERSION.SDK_INT < Build.VERSION_CODES.M)
+            return (audioManager?.isBluetoothA2dpOn == true)
+        else {
+            val devices = audioManager?.getDevices(AudioManager.GET_DEVICES_OUTPUTS)
+            if (devices != null) {
+                for(device in devices)
+                    if (device.type == AudioDeviceInfo.TYPE_BLUETOOTH_A2DP)
+                        return true
+            }
+        }
+        return false
     }
 
     private fun stopPlayer(result: Result) {
